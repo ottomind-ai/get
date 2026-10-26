@@ -1,0 +1,12 @@
+{
+  "name": "ottomind-get",
+  "private": true,
+  "type": "module",
+  "description": "get.ottomind.ai ve skills.ottomind.ai: Worker, ortak yayın iş akışı ve paketleme betikleri",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

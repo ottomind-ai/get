@@ -1,0 +1,114 @@
+# Ortak paket yayını: bir paket reposu sürüm etiketinde (vX.Y.Z) bu iş akışını çağırır; paket get.ottomind.ai'ye,
+# skill'i skills.ottomind.ai'ye gider. Çağıran repoda paket.json ve skill/SKILL.md olmalı (README → Paket ekleme).
+#
+#   on: { push: { tags: ["v*"] } }
+#   jobs:
+#     yayinla:
+#       uses: ottomind-ai/get/.github/workflows/yayinla.yml@main
+#       secrets:
+#         R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+#         R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+#         R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+#
+# Derlenmiş dosyalar (ör. ikililer) önceki bir işte actions artifact olarak yüklenir ve `ekler` ile verilir.
+name: paket yayını
+
+on:
+  workflow_call:
+    inputs:
+      ekler:
+        description: "Yayımlanacak hazır dosyaların actions artifact adı deseni (ör. sina-*); paket.json'da ekler: true"
+        type: string
+        default: ""
+    secrets:
+      R2_ACCOUNT_ID:
+        required: true
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  yayinla:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: paket-yayini-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Etiket
+        run: |
+          [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+            || { echo "::error::Yalnızca vX.Y.Z etiketinden yayımlanır (şu an: $GITHUB_REF_TYPE $GITHUB_REF_NAME)"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          path: kaynak
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ottomind-ai/get
+          ref: main
+          path: .get
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Hazır dosyalar
+        if: inputs.ekler != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ inputs.ekler }}
+          path: ekler
+          merge-multiple: true
+
+      - name: Paketle
+        id: paket
+        run: |
+          node .get/scripts/paketle.mjs --kaynak kaynak --etiket "$GITHUB_REF_NAME" --cikti out --tarama tarama \
+            --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" ${{ inputs.ekler != '' && '--ekler ekler' || '' }}
+
+      - name: Gizli bilgi taraması (gitleaks)
+        run: |
+          curl -fsSLo gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+          # Arşivler açık hâlleriyle taranır (paketle.mjs koyar); ikililerin içi de .tar.gz ise açılır.
+          find tarama/ekler -name '*.tar.gz' -exec sh -c 'mkdir -p "$1.d" && tar -xzf "$1" -C "$1.d"' _ {} \; 2>/dev/null || true
+          ./gitleaks dir tarama --config .get/gitleaks.toml --redact --no-banner --exit-code 1
+
+      - name: Yükle
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: bash .get/scripts/yukle.sh "${{ steps.paket.outputs.klasor }}"
+
+      - name: Dışarıdan doğrula
+        env:
+          AD: ${{ steps.paket.outputs.ad }}
+          SURUM: ${{ steps.paket.outputs.surum }}
+          KLASOR: ${{ steps.paket.outputs.klasor }}
+        run: |
+          set -euo pipefail
+          base="https://get.ottomind.ai/$AD/$SURUM"
+          curl -fsS "$base/SHA256SUMS" | diff - "$KLASOR/SHA256SUMS"
+          while read -r ozet f; do
+            [[ $f == skill/* ]] && url="https://skills.ottomind.ai/$AD/$SURUM/${f#skill/}" || url="$base/$f"
+            [[ $(curl -fsS "$url" | sha256sum | cut -d' ' -f1) == "$ozet" ]] || { echo "::error::$url özeti tutmuyor"; exit 1; }
+          done < "$KLASOR/SHA256SUMS"
+          {
+            echo "### $AD $SURUM yayımlandı"
+            echo
+            echo "- Kurulum: \`curl -fsSL https://get.ottomind.ai/$AD | bash\`"
+            echo "- Skill: https://skills.ottomind.ai/$AD/SKILL.md"
+            echo
+            echo '```'
+            cat "$KLASOR/SHA256SUMS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

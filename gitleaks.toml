@@ -1,0 +1,24 @@
+# Yayımlanacak paket ve skill içeriğinin taraması (gitleaks dir). Varsayılan kurallar + ottomind'a özgü iç bilgiler.
+# Bir bulgu yayını durdurur. Bilinçli bir istisna gerekiyorsa buraya yol ya da kural bazında allowlist eklenir (PR ile).
+title = "ottomind paket taraması"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "ottomind-ic-adres"
+description = "ottomind iç adresi: *.ops.ottomind.ai yalnızca NetBird'den açılır, dış pakette yeri yok"
+regex = '''(?i)\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.ops\.ottomind\.ai\b'''
+keywords = ["ops.ottomind.ai"]
+
+[[rules]]
+id = "netbird-adresi"
+description = "NetBird özel ağ adresi (100.74.x.x)"
+regex = '''\b100\.74\.\d{1,3}\.\d{1,3}\b'''
+keywords = ["100.74."]
+
+[[rules]]
+id = "aws-ornek-kimligi"
+description = "AWS EC2 örnek kimliği"
+regex = '''\bi-0[0-9a-f]{16}\b'''
+keywords = ["i-0"]

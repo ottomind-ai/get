@@ -1,0 +1,18 @@
+# get.ottomind.ai ve skills.ottomind.ai. Yayın: npx wrangler@4.149.0 deploy (README → Kurulum).
+name = "ottomind-get"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+routes = [
+  { pattern = "get.ottomind.ai/*", zone_name = "ottomind.ai" },
+  { pattern = "skills.ottomind.ai/*", zone_name = "ottomind.ai" },
+]
+
+[[r2_buckets]]
+binding = "PAKETLER"
+bucket_name = "ottomind-paketler"
+
+[vars]
+GET_HOST = "get.ottomind.ai"
+SKILLS_HOST = "skills.ottomind.ai"
