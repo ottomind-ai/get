@@ -93,10 +93,14 @@ jobs:
         run: |
           set -euo pipefail
           base="https://get.ottomind.ai/$AD/$SURUM"
-          curl -fsS "$base/SHA256SUMS" | diff - "$KLASOR/SHA256SUMS"
+          # Anlık ağ hataları "özet tutmuyor" sanılmasın: önce dosyaya indir (yeniden denemeli), sonra karşılaştır.
+          indir() { curl -fsS --retry 3 --retry-all-errors --retry-delay 2 -o "$2" "$1" || { echo "::error::$1 indirilemedi"; exit 1; }; }
+          indir "$base/SHA256SUMS" uzak-sums
+          diff uzak-sums "$KLASOR/SHA256SUMS" || { echo "::error::$base/SHA256SUMS yerel kopyayla aynı değil"; exit 1; }
           while read -r ozet f; do
             [[ $f == skill/* ]] && url="https://skills.ottomind.ai/$AD/$SURUM/${f#skill/}" || url="$base/$f"
-            [[ $(curl -fsS "$url" | sha256sum | cut -d' ' -f1) == "$ozet" ]] || { echo "::error::$url özeti tutmuyor"; exit 1; }
+            indir "$url" uzak-dosya
+            [[ $(sha256sum uzak-dosya | cut -d' ' -f1) == "$ozet" ]] || { echo "::error::$url özeti tutmuyor"; exit 1; }
           done < "$KLASOR/SHA256SUMS"
           {
             echo "### $AD $SURUM yayımlandı"

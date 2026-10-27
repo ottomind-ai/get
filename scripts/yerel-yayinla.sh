@@ -58,10 +58,11 @@ bash "$BURASI/yukle.sh" "$KLASOR"
 
 echo "== dışarıdan doğrula"
 base="https://get.ottomind.ai/$AD/$SURUM"
-curl -fsS "$base/SHA256SUMS" | diff - "$KLASOR/SHA256SUMS" >/dev/null || fail "$base/SHA256SUMS yerel kopyayla aynı değil"
+curl -fsS --retry 3 --retry-all-errors --retry-delay 2 -o "$tmp/sums" "$base/SHA256SUMS" || fail "indirilemedi: $base/SHA256SUMS"
+diff "$tmp/sums" "$KLASOR/SHA256SUMS" >/dev/null || fail "$base/SHA256SUMS yerel kopyayla aynı değil"
 while read -r o f; do
   if [[ $f == skill/* ]]; then url="https://skills.ottomind.ai/$AD/$SURUM/${f#skill/}"; else url="$base/$f"; fi
-  curl -fsS "$url" -o "$tmp/indir" || fail "indirilemedi: $url"
+  curl -fsS --retry 3 --retry-all-errors --retry-delay 2 "$url" -o "$tmp/indir" || fail "indirilemedi: $url"
   [[ $(ozet "$tmp/indir") == "$o" ]] || fail "özet tutmuyor: $url"
 done < "$KLASOR/SHA256SUMS"
 echo "✓ $AD $SURUM yayımlandı"
