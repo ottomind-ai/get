@@ -35,7 +35,7 @@ function repo({ paket = { ad: "demo", arsiv: ["a.txt", "lib/", "run.sh"] }, skil
 
 function calistir(d, commit, ek = {}) {
   const out = mkdtempSync(path.join(tmpdir(), "out-"));
-  return paketle({ kaynak: d, etiket: "v1.2.3", cikti: path.join(out, "o"), tarama: path.join(out, "t"), repo: "ottomind-ai/demo", commit, yayin: new Date("2026-10-27T00:00:00Z"), ...ek });
+  return paketle({ kaynak: d, etiket: "v1.2.3", cikti: path.join(out, "o"), tarama: path.join(out, "t"), repo: "ottomind-ai/demo", commit, ...ek });
 }
 
 test("arşiv, kurulum, skill, SHA256SUMS ve manifest", () => {
@@ -72,11 +72,11 @@ test("arşiv, kurulum, skill, SHA256SUMS ve manifest", () => {
   assert.equal(m.files.find((f) => f.name === "demo.zip").url, "https://get.ottomind.ai/demo/1.2.3/demo.zip");
 });
 
-test("aynı commit iki kez aynı baytları verir", () => {
+test("aynı commit iki kez aynı baytları verir (zip'ler, SHA256SUMS, manifest)", () => {
   const { d, commit } = repo();
-  const a = readFileSync(path.join(calistir(d, commit).hedef, "demo.zip"));
-  const b = readFileSync(path.join(calistir(d, commit).hedef, "demo.zip"));
-  assert.ok(a.equals(b));
+  const h1 = calistir(d, commit).hedef, h2 = calistir(d, commit).hedef;
+  for (const f of ["demo.zip", "demo-skill.zip", "SHA256SUMS", "manifest.json"]) assert.ok(readFileSync(path.join(h1, f)).equals(readFileSync(path.join(h2, f))), f);
+  assert.equal(JSON.parse(readFileSync(path.join(h1, "manifest.json"), "utf8")).date, new Date(Number(git(d, "log", "-1", "--format=%ct")) * 1000).toISOString().replace(/\.\d{3}Z$/, "Z"));
 });
 
 test("tarama klasörü yalnızca yayımlananları içerir", () => {

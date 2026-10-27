@@ -61,7 +61,7 @@ function dosyalar(kok) {
   return out.sort();
 }
 
-export function paketle({ kaynak, etiket, cikti, tarama, ekler = null, repo = "", commit = "", yayin = new Date() }) {
+export function paketle({ kaynak, etiket, cikti, tarama, ekler = null, repo = "", commit = "" }) {
   const pj = JSON.parse(readFileSync(path.join(kaynak, "paket.json"), "utf8"));
   const ad = pj.ad;
   if (!PAKET.test(ad || "")) hata(`paket.json ad "${ad}" geçersiz (küçük harf, rakam, tire)`);
@@ -150,7 +150,7 @@ export function paketle({ kaynak, etiket, cikti, tarama, ekler = null, repo = ""
     name: ad,
     version: surum,
     description: onBilgi.description,
-    published: yayin.toISOString().replace(/\.\d{3}Z$/, "Z"),
+    date: zaman.toISOString().replace(/\.\d{3}Z$/, "Z"),   // etiketteki commit'in tarihi: aynı commit aynı manifest
     source: { repo, tag: etiket, commit },
     install: kurulumKaynak ? `curl -fsSL ${GET}/${ad} | bash` : null,
     install_pinned: kurulumKaynak ? `curl -fsSL ${GET}/${ad}/${surum} | bash` : null,

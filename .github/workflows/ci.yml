@@ -16,4 +16,4 @@ jobs:
         with:
           node-version: 22
       - run: npm test
-      - run: bash -n scripts/yukle.sh scripts/kurulum-varsayilan.sh
+      - run: bash -n scripts/yukle.sh scripts/kurulum-varsayilan.sh scripts/yerel-yayinla.sh

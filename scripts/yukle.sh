@@ -21,11 +21,13 @@ trap 'rm -rf "$tmp"' EXIT
 [[ -f $DIR/SHA256SUMS && -f $DIR/manifest.json ]] || { echo "✗ $DIR bir paketle.mjs çıktısı değil" >&2; exit 1; }
 
 # 1) Sürüm dosyaları; SHA256SUMS ve manifest.json en son (yarım kalan bir yükleme "tamam" görünmesin).
-mapfile -t LISTE < <(cd "$DIR" && find . -type f ! -name SHA256SUMS ! -name manifest.json | sed 's#^\./##' | sort)
+LISTE=()
+while IFS= read -r f; do LISTE+=("$f"); done < <(cd "$DIR" && find . -type f ! -name SHA256SUMS ! -name manifest.json | sed 's#^\./##' | sort)
 LISTE+=(SHA256SUMS manifest.json)
+ozetle() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 for f in "${LISTE[@]}"; do
   key="paket/$AD/$SURUM/$f"
-  ozet=$(sha256sum "$DIR/$f" | cut -d' ' -f1)
+  ozet=$(ozetle "$DIR/$f")
   if meta=$(s3 head-object --bucket "$B" --key "$key" 2>/dev/null); then
     var=$(jq -r '.Metadata.sha256 // ""' <<<"$meta")
     if [[ $var == "$ozet" ]]; then echo "  var: $key"; continue; fi
@@ -65,7 +67,7 @@ manifestler=("$tmp"/m/*.json)
 jq -s '{
   generated: (now | todate),
   packages: (map({
-    name, version, description, published, install,
+    name, version, description, date, install,
     manifest: "https://get.ottomind.ai/\(.name)/latest.json",
     skill: "https://skills.ottomind.ai/\(.name)/SKILL.md",
     skill_zip: "https://skills.ottomind.ai/\(.name)/\(.name)-skill.zip"

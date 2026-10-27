@@ -89,7 +89,16 @@ jobs:
 
 Sırlar `ottomind-ai` organizasyonunda (yalnızca seçili repolara açık); organizasyon dışındaki bir repo için repo sırrı olarak eklenir. Anahtar yalnızca `ottomind-paketler` bucket'ında nesne okuma/yazma yetkisindedir.
 
-Yayın: `git tag v1.2.3 && git push origin v1.2.3`. Aynı sürüm ikinci kez yayımlanamaz; düzeltme için sürüm yükseltilir.
+Yayın: `git tag v1.2.3 && git push origin v1.2.3`. Aynı sürüm ikinci kez yayımlanamaz; düzeltme için sürüm yükseltilir (aynı commit'ten yeniden çalıştırmak güvenli: aynı baytlar atlanır).
+
+**Actions dakikası olmadan (private repolar ücretli dakika harcar):** aynı adımlar bu bilgisayardan, gönderilmiş etiketten:
+
+```bash
+git -C ../prelit push origin v0.3.0
+bash scripts/yerel-yayinla.sh ../prelit v0.3.0            # ikilisi olan paket: --ekler <klasör>
+```
+
+R2 anahtarını `~/.config/ottomind/r2-paket.env`'den (600) okur. Herkese açık repolarda (sina gibi) Actions ücretsizdir.
 
 ## İndirilen dosyayı elle doğrulamak
 
