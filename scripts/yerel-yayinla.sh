@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Bir paketi GitHub Actions kullanmadan bu bilgisayardan yayımlar; ortak iş akışıyla (yayinla.yml) aynı adımlar:
-# paketle → gitleaks → R2'ye yükle → get/skills adreslerinden indirip özetini karşılaştır.
+# paketle → gitleaks → S3'e yükle → get/skills adreslerinden indirip özetini karşılaştır.
 #   bash yerel-yayinla.sh <paket reposu> <vX.Y.Z> [--ekler <klasör>]
 # Etiket GitHub'a gönderilmiş olmalı (yayımlanan her şeyin kaynağı origin'de dursun); paket etiketin temiz bir kopyasından üretilir.
-# R2 anahtarı: ortam değişkenleri ya da ~/.config/ottomind/r2-paket.env (get-kurulum.sh yazar, 600).
+# AWS kimliği: bu bilgisayardaki oturum (aws login). Bucket politikası burada da geçerli: yayımlanmış sürüm değiştirilemez.
 set -euo pipefail
 BURASI=$(cd "$(dirname "$0")" && pwd)
 fail() { printf '✗ %s\n' "$*" >&2; exit 1; }
@@ -13,11 +13,8 @@ EKLER=""
 if [[ ${3:-} == --ekler ]]; then EKLER=$(cd "${4:?ekler klasörü}" && pwd); fi
 [[ $ETIKET =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || fail "etiket vX.Y.Z biçiminde olmalı: $ETIKET"
 
-ENVF=$HOME/.config/ottomind/r2-paket.env
-if [[ -z ${R2_ACCESS_KEY_ID:-} && -f $ENVF ]]; then set -a; . "$ENVF"; set +a; fi
-[[ -n ${R2_ACCOUNT_ID:-} && -n ${R2_ACCESS_KEY_ID:-} && -n ${R2_SECRET_ACCESS_KEY:-} ]] || fail "R2 anahtarı yok ($ENVF ya da ortam değişkenleri)"
-export R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
 for k in node git jq aws curl; do command -v $k >/dev/null || fail "$k gerekli"; done
+aws sts get-caller-identity >/dev/null 2>&1 || fail "AWS oturumu yok: önce aws login" 
 
 COMMIT=$(git -C "$REPO" rev-parse "$ETIKET^{commit}" 2>/dev/null) || fail "$ETIKET repoda yok"
 UZAK=$(git -C "$REPO" ls-remote origin "refs/tags/$ETIKET^{}" "refs/tags/$ETIKET" | awk 'NR==1 || /\^\{\}$/ {c=$1} END {print c}')
@@ -56,7 +53,7 @@ if ! "$tmp/gitleaks" dir "$tmp/tarama" --config "$BURASI/../gitleaks.toml" --red
 fi
 tail -1 "$tmp/gitleaks.log" | sed 's/^/  /'
 
-echo "== R2'ye yükle"
+echo "== S3'e yükle"
 bash "$BURASI/yukle.sh" "$KLASOR"
 
 echo "== dışarıdan doğrula"

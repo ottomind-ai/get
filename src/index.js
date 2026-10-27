@@ -1,7 +1,9 @@
-// get.ottomind.ai ve skills.ottomind.ai: tek Worker, tek R2 bucket (ottomind-paketler).
+// get.ottomind.ai ve skills.ottomind.ai: tek Cloudflare Worker; dosyalar AWS S3'te (otto-paketler-079819355246, eu-central-1).
+// Worker S3'ü salt okunur bir anahtarla (Worker sırları AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) imzalı isteklerle okur;
+// bucket dışarıya kapalı. Sürümlü yanıtlar Cloudflare önbelleğinde tutulur.
 //
-// R2'de:
-//   paket/<paket>/<sürüm>/...   yayımlanmış sürüm; bucket lock ile değiştirilemez, silinemez
+// S3'te:
+//   paket/<paket>/<sürüm>/...   yayımlanmış sürüm; bucket politikası üzerine yazmayı ve silmeyi engeller
 //                               (dosyalar, SHA256SUMS, manifest.json, install.sh, skill/, <paket>-skill.zip)
 //   son/<paket>.json            son sürümü gösteren işaret: {"version": "x.y.z"}
 //   index.json                  bütün paketlerin listesi (yayın iş akışı her yayında yeniden üretir)
@@ -17,6 +19,8 @@
 // skills.ottomind.ai/<paket>/<yol>         son sürümün skill dosyası (references/… ya da <paket>-skill.zip)
 // skills.ottomind.ai/<paket>/<sürüm>/<yol> o sürümün skill dosyası
 
+import { AwsClient } from "aws4fetch";
+
 const PAKET = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const SURUM = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/;
 const DOSYA = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -30,22 +34,54 @@ const SABIT = "public, max-age=31536000, immutable";   // sürümlü yollar hiç
 const KISA = "public, max-age=60";                      // son sürüm, listeler
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     if (req.method !== "GET" && req.method !== "HEAD") return metin("Yalnızca GET ve HEAD.\n", 405, { allow: "GET, HEAD" });
-    const url = new URL(req.url);
-    const host = url.hostname;
-    let parcalar;
-    try {
-      parcalar = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-    } catch {
-      return yok();
+    const onbellek = req.method === "GET" && typeof caches !== "undefined" ? caches.default : null;
+    if (onbellek) {
+      const hit = await onbellek.match(req);
+      if (hit) return hit;
     }
-    if (parcalar.some((p) => p === "." || p === ".." || p.includes("/") || p.includes("\\"))) return yok();
-    if (host === (env.GET_HOST || "get.ottomind.ai")) return get(req, env, parcalar);
-    if (host === (env.SKILLS_HOST || "skills.ottomind.ai")) return skills(req, env, parcalar);
-    return yok();
+    let res;
+    try {
+      res = await yonlendir(req, { ...env, PAKETLER: env.PAKETLER || s3(env) });
+    } catch (e) {
+      console.error("depo okunamadı", e);
+      return metin("Paket deposu şu an okunamıyor; biraz sonra yeniden dene.\n", 502);
+    }
+    // Sürümlü (hiç değişmeyen) yanıtlar kenarda saklanır; S3'e her istekte gidilmez.
+    if (onbellek && ctx && res.status === 200 && res.headers.get("cache-control") === SABIT) ctx.waitUntil(onbellek.put(req, res.clone()));
+    return res;
   },
 };
+
+// S3'ten okuma: R2 bağlamasıyla aynı arayüz (get → null | {body, size, httpEtag, json}).
+export function s3(env, fetcher) {
+  const aws = new AwsClient({ accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY, region: env.S3_REGION, service: "s3" });
+  const kok = `https://${env.S3_BUCKET}.s3.${env.S3_REGION}.amazonaws.com/`;
+  return {
+    async get(anahtar) {
+      const r = await (fetcher || aws.fetch.bind(aws))(kok + anahtar.split("/").map(encodeURIComponent).join("/"));
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`S3 ${r.status} ${anahtar}`);
+      return { body: r.body, size: Number(r.headers.get("content-length") || 0), httpEtag: r.headers.get("etag"), json: () => r.json() };
+    },
+  };
+}
+
+async function yonlendir(req, env) {
+  const url = new URL(req.url);
+  const host = url.hostname;
+  let parcalar;
+  try {
+    parcalar = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return yok();
+  }
+  if (parcalar.some((p) => p === "." || p === ".." || p.includes("/") || p.includes("\\"))) return yok();
+  if (host === (env.GET_HOST || "get.ottomind.ai")) return get(req, env, parcalar);
+  if (host === (env.SKILLS_HOST || "skills.ottomind.ai")) return skills(req, env, parcalar);
+  return yok();
+}
 
 async function get(req, env, p) {
   if (p.length === 0) return liste(env, "get");

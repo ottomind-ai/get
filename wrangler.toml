@@ -1,4 +1,5 @@
 # get.ottomind.ai ve skills.ottomind.ai. Yayın: npx wrangler@4.149.0 deploy (README → Kurulum).
+# Dosyalar AWS S3'te; Worker salt okunur anahtarla okur: wrangler secret put AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
 name = "ottomind-get"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
@@ -9,10 +10,8 @@ routes = [
   { pattern = "skills.ottomind.ai/*", zone_name = "ottomind.ai" },
 ]
 
-[[r2_buckets]]
-binding = "PAKETLER"
-bucket_name = "ottomind-paketler"
-
 [vars]
 GET_HOST = "get.ottomind.ai"
 SKILLS_HOST = "skills.ottomind.ai"
+S3_BUCKET = "otto-paketler-079819355246"
+S3_REGION = "eu-central-1"

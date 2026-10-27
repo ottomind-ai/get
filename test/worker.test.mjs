@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import worker from "../src/index.js";
+import worker, { s3 } from "../src/index.js";
 
 // R2 bağlamasının yerine: anahtar → içerik.
 function kova(nesneler) {
@@ -144,4 +144,38 @@ test("index.json yokken boş liste", async () => {
   assert.match(await r.text(), /No skills published yet/);
   const g = await worker.fetch(new Request("https://get.ottomind.ai/"), bos);
   assert.match(await g.text(), /No packages published yet/);
+});
+
+test("S3: imzalı istek doğru adrese gider, 404 → yok, diğer hatalar fırlatır", async () => {
+  const env = { S3_BUCKET: "otto-paketler-1", S3_REGION: "eu-central-1", AWS_ACCESS_KEY_ID: "AKIATEST", AWS_SECRET_ACCESS_KEY: "gizli" };
+  const istekler = [];
+  const asil = globalThis.fetch;
+  globalThis.fetch = async (r) => {
+    istekler.push(r);
+    if (r.url.endsWith("/yok.json")) return new Response("", { status: 404 });
+    if (r.url.endsWith("/yasak.json")) return new Response("", { status: 403 });
+    return new Response('{"version":"1.0.0"}', { headers: { "content-length": "19", etag: '"abc"' } });
+  };
+  try {
+    const d = s3(env);
+    const o = await d.get("son/prelit.json");
+    assert.equal(istekler[0].url, "https://otto-paketler-1.s3.eu-central-1.amazonaws.com/son/prelit.json");
+    assert.match(istekler[0].headers.get("authorization"), /^AWS4-HMAC-SHA256 Credential=AKIATEST\/\d{8}\/eu-central-1\/s3\/aws4_request/);
+    assert.equal(o.size, 19);
+    assert.equal(o.httpEtag, '"abc"');
+    assert.deepEqual(await o.json(), { version: "1.0.0" });
+    assert.equal(await d.get("yok.json"), null);
+    await assert.rejects(() => d.get("yasak.json"), /S3 403/);
+    await d.get("paket/a b/1.0.0/x.zip");
+    assert.equal(istekler.at(-1).url, "https://otto-paketler-1.s3.eu-central-1.amazonaws.com/paket/a%20b/1.0.0/x.zip");
+  } finally {
+    globalThis.fetch = asil;
+  }
+});
+
+test("depo okunamazsa 502", async () => {
+  const bozuk = { ...env, PAKETLER: { async get() { throw new Error("S3 500"); } } };
+  const r = await worker.fetch(new Request("https://get.ottomind.ai/prelit"), bozuk);
+  assert.equal(r.status, 502);
+  assert.match(await r.text(), /okunamıyor/);
 });

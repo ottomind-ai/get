@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Bir sürümü R2'ye (ottomind-paketler) yükler, son sürüm işaretini ve index.json'u günceller.
+# Bir sürümü S3'e (otto-paketler-079819355246, eu-central-1) yükler, son sürüm işaretini ve index.json'u günceller.
 #   yukle.sh <out/<ad>/<sürüm>>
-# Ortam: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY (yalnızca bu bucket'a nesne okuma/yazma), isteğe bağlı R2_BUCKET.
-# paket/ altı bucket lock ile kilitli: yayımlanmış bir sürüm değiştirilemez. Yeniden çalıştırmak güvenli: aynı özetli
-# dosya atlanır, farklıysa iş durur (sürümü yükselt). Ön sürümler (1.2.3-rc.1) ve eski sürümler son sürüm işaretini taşımaz.
+# AWS kimliği ortamdan: CI'da GitHub OIDC ile alınan otto-paket-yayinci rolü, yerelde kullanıcının oturumu.
+# İsteğe bağlı PAKET_BUCKET, AWS_REGION.
+# paket/ altına yalnızca "yoksa yaz" (If-None-Match: *) ile yazılır; bucket politikası başka türlüsünü ve silmeyi reddeder:
+# yayımlanmış bir sürüm değiştirilemez. Yeniden çalıştırmak güvenli: aynı özetli dosya atlanır, farklıysa iş durur
+# (sürümü yükselt). Ön sürümler (1.2.3-rc.1) ve eski sürümler son sürüm işaretini taşımaz.
 set -euo pipefail
 DIR=${1:?"kullanım: yukle.sh out/<ad>/<sürüm>"}
 DIR=${DIR%/}
 SURUM=$(basename "$DIR")
 AD=$(basename "$(dirname "$DIR")")
-B=${R2_BUCKET:-ottomind-paketler}
-: "${R2_ACCOUNT_ID:?}" "${R2_ACCESS_KEY_ID:?}" "${R2_SECRET_ACCESS_KEY:?}"
-export AWS_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY AWS_DEFAULT_REGION=auto
-# R2, AWS CLI'nin yeni varsayılan bütünlük başlıklarını her işlemde istemiyor.
-export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED AWS_RESPONSE_CHECKSUM_VALIDATION=WHEN_REQUIRED
-s3() { aws s3api --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" --output json "$@"; }
+B=${PAKET_BUCKET:-otto-paketler-079819355246}
+export AWS_REGION=${AWS_REGION:-eu-central-1}
+s3() { aws s3api --region "$AWS_REGION" --output json "$@"; }
+aws sts get-caller-identity >/dev/null || { echo "✗ AWS kimliği yok (yerelde: aws login)" >&2; exit 1; }
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -34,7 +34,7 @@ for f in "${LISTE[@]}"; do
     echo "✗ $key zaten yayımlanmış ve içeriği farklı. Yayımlanmış sürüm değiştirilemez; sürümü yükselt." >&2
     exit 1
   fi
-  s3 put-object --bucket "$B" --key "$key" --body "$DIR/$f" --metadata "sha256=$ozet" >/dev/null
+  s3 put-object --bucket "$B" --key "$key" --body "$DIR/$f" --metadata "sha256=$ozet" --if-none-match '*' >/dev/null
   echo "  yüklendi: $key"
 done
 

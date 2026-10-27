@@ -4,13 +4,12 @@
 #   on: { push: { tags: ["v*"] } }
 #   jobs:
 #     yayinla:
+#       permissions: { contents: read, id-token: write }
 #       uses: ottomind-ai/get/.github/workflows/yayinla.yml@main
-#       secrets:
-#         R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-#         R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-#         R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 #
-# Derlenmiş dosyalar (ör. ikililer) önceki bir işte actions artifact olarak yüklenir ve `ekler` ile verilir.
+# Sır gerekmez: AWS'ye GitHub OIDC ile girilir. otto-paket-yayinci rolünü yalnızca izin verilen repoların vX.Y.Z
+# etiketleri üstlenebilir (yeni paket → rolün güven ilkesine eklenir). Derlenmiş dosyalar (ör. ikililer) önceki bir işte
+# actions artifact olarak yüklenir ve `ekler` ile verilir.
 name: paket yayını
 
 on:
@@ -20,16 +19,10 @@ on:
         description: "Yayımlanacak hazır dosyaların actions artifact adı deseni (ör. sina-*); paket.json'da ekler: true"
         type: string
         default: ""
-    secrets:
-      R2_ACCOUNT_ID:
-        required: true
-      R2_ACCESS_KEY_ID:
-        required: true
-      R2_SECRET_ACCESS_KEY:
-        required: true
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   yayinla:
@@ -82,11 +75,14 @@ jobs:
           find tarama/ekler -name '*.tar.gz' -exec sh -c 'mkdir -p "$1.d" && tar -xzf "$1" -C "$1.d"' _ {} \; 2>/dev/null || true
           ./gitleaks dir tarama --config .get/gitleaks.toml --redact --no-banner --exit-code 1
 
+      - name: AWS kimliği (OIDC, anahtarsız)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::079819355246:role/otto-paket-yayinci
+          aws-region: eu-central-1
+          role-session-name: paket-${{ github.event.repository.name }}-${{ github.run_id }}
+
       - name: Yükle
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: bash .get/scripts/yukle.sh "${{ steps.paket.outputs.klasor }}"
 
       - name: Dışarıdan doğrula

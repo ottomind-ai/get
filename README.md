@@ -2,7 +2,7 @@
 
 Bir AI'a tek link verip bir paketi kullandırmak için: **skills.ottomind.ai** işin ajan tarafını (SKILL.md: ne zaman kullanılır, nasıl kurulur, kullanıcıya ne sorulur), **get.ottomind.ai** paketin kendisini (sürümlü dosyalar, SHA-256, manifest, kurulum betiği) sunar. Her paketin SKILL.md'si kendi reposunda durur; sürüm etiketi atılınca bu repodaki ortak iş akışı ikisine birden yayımlar.
 
-Bu repo herkese açık; içinde sır yok. Cloudflare Worker (`src/index.js`), ortak yayın iş akışı (`.github/workflows/yayinla.yml`) ve paketleme betikleri (`scripts/`).
+Bu repo herkese açık; içinde sır yok. Cloudflare Worker (`src/index.js`), ortak yayın iş akışı (`.github/workflows/yayinla.yml`) ve paketleme betikleri (`scripts/`). Dosyalar AWS S3'te (krediden), adresleri ücretsiz Workers planındaki Worker sunar.
 
 ## Adresler
 
@@ -23,14 +23,14 @@ Sürümlü adresler hiç değişmez (bir yıl önbelleklenir); `latest`, kök li
 
 ## Nasıl çalışır
 
-- **Depo:** Cloudflare R2 `ottomind-paketler` bucket'ı; dışarıya kapalı, dosyaları yalnızca Worker sunar.
-  - `paket/<paket>/<sürüm>/…` yayımlanmış sürüm. Bucket lock (süresiz) ile **silinemez ve değiştirilemez**; yayın anahtarı bunu aşamaz. Yanlış yayımlanan bir sürüm yalnızca Cloudflare hesabının yöneticisi kilidi kaldırarak silebilir (Bir şey yanlış yayımlanırsa).
+- **Depo:** AWS S3 `otto-paketler-079819355246` (eu-central-1); dışarıya kapalı (Block Public Access açık), dosyaları yalnızca Worker salt okunur bir anahtarla (`otto-paket-okuyucu`, Worker sırrı) imzalı isteklerle okur. Sürümlü yanıtlar Cloudflare önbelleğinde tutulur.
+  - `paket/<paket>/<sürüm>/…` yayımlanmış sürüm. Bucket politikası buraya yalnızca "yoksa yaz" (`If-None-Match: *`) ile yazmaya izin verir ve silmeyi herkese reddeder: **silinemez ve değiştirilemez**; yayın rolü bunu aşamaz. Yanlış yayımlanan bir sürümü yalnızca AWS hesabının yöneticisi politikayı geçici olarak gevşetip silebilir (Bir şey yanlış yayımlanırsa). Versioning açık.
   - `son/<paket>.json` son sürüm işareti; `index.json` liste. Her yayında yeniden yazılır.
 - **Worker:** `ottomind-get`, `get.ottomind.ai/*` ve `skills.ottomind.ai/*` yollarında. Yalnızca GET/HEAD; yol bölümleri sıkı desenlerle denetlenir.
 - **Yayın:** paket reposunda `vX.Y.Z` etiketi → `yayinla.yml`:
   1. etiketteki commit'ten paketler (`scripts/paketle.mjs`): `paket.json`'daki izin listesine giren **izlenen** dosyalar `<paket>.zip`'e (deterministik; aynı commit aynı sha256), hazır ikililer olduğu gibi, kurulum betiği, `skill/` (`{{name}}`, `{{version}}` doldurulur), `<paket>-skill.zip`, `SHA256SUMS`, `manifest.json`;
   2. yayımlanacak her şeyi açık hâliyle **gitleaks** ile tarar (`gitleaks.toml`: varsayılan kurallar + `*.ops.ottomind.ai`, NetBird `100.74.*`, AWS örnek kimlikleri); bulgu varsa durur;
-  3. R2'ye yükler (`scripts/yukle.sh`): aynı özetli dosya atlanır, farklıysa durur; son sürüm işareti yalnızca daha yeni kararlı sürümde ilerler (ön sürüm `1.2.3-rc.1` işaret almaz); `index.json` yeniden üretilir;
+  3. GitHub OIDC ile `otto-paket-yayinci` rolünü üstlenip (sır yok) S3'e yükler (`scripts/yukle.sh`): aynı özetli dosya atlanır, farklıysa durur; son sürüm işareti yalnızca daha yeni kararlı sürümde ilerler (ön sürüm `1.2.3-rc.1` işaret almaz); `index.json` yeniden üretilir;
   4. her dosyayı get/skills adreslerinden indirip özetini karşılaştırır.
 
 ## Paket ekleme
@@ -80,14 +80,11 @@ on:
     tags: ["v*"]
 jobs:
   yayinla:
+    permissions: { contents: read, id-token: write }
     uses: ottomind-ai/get/.github/workflows/yayinla.yml@main
-    secrets:
-      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 ```
 
-Sırlar `ottomind-ai` organizasyonunda (yalnızca seçili repolara açık); organizasyon dışındaki bir repo için repo sırrı olarak eklenir. Anahtar yalnızca `ottomind-paketler` bucket'ında nesne okuma/yazma yetkisindedir.
+Sır gerekmez: iş akışı AWS'ye GitHub OIDC ile girer. `otto-paket-yayinci` rolünü yalnızca güven ilkesinde adı geçen repoların `vX.Y.Z` etiketleri üstlenebilir; yeni bir paket reposu oraya eklenir (`get-kurulum.sh` → `ROLLER`). Rol yalnızca bu bucket'a yazabilir.
 
 Yayın: `git tag v1.2.3 && git push origin v1.2.3`. Aynı sürüm ikinci kez yayımlanamaz; düzeltme için sürüm yükseltilir (aynı commit'ten yeniden çalıştırmak güvenli: aynı baytlar atlanır).
 
@@ -98,7 +95,7 @@ git -C ../prelit push origin v0.3.0
 bash scripts/yerel-yayinla.sh ../prelit v0.3.0            # ikilisi olan paket: --ekler <klasör>
 ```
 
-R2 anahtarını `~/.config/ottomind/r2-paket.env`'den (600) okur. Herkese açık repolarda (sina gibi) Actions ücretsizdir.
+Bu bilgisayardaki AWS oturumunu kullanır (`aws login`); bucket politikası burada da geçerli. Herkese açık repolarda (sina gibi) Actions ücretsizdir.
 
 ## İndirilen dosyayı elle doğrulamak
 
@@ -112,19 +109,21 @@ curl -fsSL https://get.ottomind.ai/prelit/0.3.0/SHA256SUMS | grep ' prelit.zip$'
 ## Geliştirme
 
 ```bash
-npm test                       # Worker yolları (sahte R2), paketleme, zip
+npm ci && npm test             # Worker yolları (sahte depo), S3 imzası, paketleme, zip
 node scripts/paketle.mjs --kaynak ../prelit --etiket v0.3.0 --cikti out --tarama tarama
 ```
 
 ## Kurulum (bir kez) ve Worker yayını
 
-Cloudflare hesabında: R2 bucket `ottomind-paketler`, `paket/` öneki için süresiz bucket lock kuralı, `skills.ottomind.ai` için proxy'li DNS kaydı, R2 API anahtarı (Object Read & Write, yalnızca bu bucket). Worker:
+AWS'de (`get-kurulum.sh kur`): S3 bucket `otto-paketler-079819355246` (versioning, Block Public Access, şifreleme, yalnızca TLS, `paket/` için üzerine yazma ve silme yasağı), GitHub OIDC sağlayıcısı, yayın rolü `otto-paket-yayinci` (yalnızca izinli repoların etiketleri; yalnızca bu bucket'a yazma), Worker'ın salt okunur kullanıcısı `otto-paket-okuyucu`. Cloudflare'da (ücretsiz plan, kart gerekmez): `skills.ottomind.ai` için proxy'li DNS kaydı ve Worker:
 
 ```bash
+npm ci
 npx wrangler@4.149.0 login
 npx wrangler@4.149.0 deploy
+# okuyucu anahtarı: aws iam create-access-key … | wrangler secret put AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
 ```
 
 ## Bir şey yanlış yayımlanırsa
 
-İçinde sır olan bir sürüm: önce sırrı iptal et (yeni anahtar üret). Sonra Cloudflare panelinde R2 → `ottomind-paketler` → Settings → Bucket lock kuralını geçici olarak kaldır, `paket/<ad>/<sürüm>/` nesnelerini sil, `son/<ad>.json`'u önceki sürüme çevir, kuralı geri ekle; bir sonraki yayın `index.json`'u yeniler.
+İçinde sır olan bir sürüm: önce sırrı iptal et (yeni anahtar üret). Sonra AWS'de bucket politikasındaki silme yasağını geçici olarak kaldır, `paket/<ad>/<sürüm>/` nesnelerini (versiyonlarıyla) sil, `son/<ad>.json`'u önceki sürüme çevir, politikayı geri koy; bir sonraki yayın `index.json`'u yeniler. Cloudflare önbelleğinden de temizle (Caching → Purge, ilgili adresler).
